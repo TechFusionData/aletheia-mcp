@@ -123,6 +123,45 @@ async def get_citation_graph(
     return await openalex.get_citation_graph(paper_id, direction, limit)
 
 
+@mcp.tool()
+async def get_paper_full_text(paper_id: str) -> dict:
+    """Fetch and return the full text of an open-access paper.
+
+    Use this when abstracts aren't enough — when the user asks about specific
+    methods, exact numbers, limitations, or wants to verify a claim against
+    primary text. Only works for papers with an open-access PDF available.
+
+    Typical flow: search_papers → pick a paper → get_paper_full_text(paper.id)
+    to read the whole thing rather than just the abstract.
+
+    Supported identifier formats: same as get_paper_details (OpenAlex IDs,
+    DOIs with or without prefix, PubMed IDs, full OpenAlex URLs).
+
+    Args:
+        paper_id: Any supported identifier.
+
+    Returns:
+        On success, a dict with:
+            - paper_id, title, authors, year, doi, pdf_url, source
+            - text: full extracted text as a single string
+            - char_count: length of the text
+
+        On failure, a dict with an 'error' field. Possible error codes:
+            - "not_found": paper_id didn't resolve
+            - "no_open_access_version": paper exists but no OA PDF available
+            - "download_failed": network error fetching the PDF
+            - "not_a_pdf": URL returned HTML (likely paywall landing page)
+            - "pdf_too_large": PDF exceeded 30MB safety cap
+            - "extraction_failed": PDF parser error (encrypted/malformed)
+            - "extraction_empty": PDF had no text layer (scanned image)
+
+        When an error is returned, the response also includes 'message'
+        with a human-readable explanation and (where relevant) the DOI so
+        the user can access the paper through other means.
+    """
+    return await openalex.get_paper_full_text(paper_id)
+
+
 def main() -> None:
     """Entry point — runs the MCP server using stdio transport.
 

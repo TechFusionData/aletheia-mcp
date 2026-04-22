@@ -8,17 +8,18 @@ Tools like Elicit, Consensus, and SciSpace are great but they're standalone chat
 
 With aletheia-mcp running in Claude or any MCP-compatible client, you can ask things like:
 
-> "I'm reviewing literature on mitochondrial dysfunction in Parkinson's. Find the 20 most-cited papers from the last 5 years, cluster them by methodology, identify which methodologies are gaining traction vs. declining, and flag any that contradict the dominant view."
+> "I'm reviewing literature on mitochondrial dysfunction in Parkinson's. Find the 20 most-cited papers from the last 5 years, pull the full text of the three most influential, identify the exact mechanisms they propose, and flag any that contradict each other."
 
-Under the hood, Claude chains multiple tool calls — search, fetch full metadata, walk citation graphs, compare — and synthesizes an answer. That's the difference between search and research.
+Under the hood, Claude chains multiple tool calls — search, fetch metadata, walk citations, download and parse full PDFs — and synthesizes. That's the difference between search and research.
 
-## Tools in v0.2.0
+## Tools in v0.3.0
 
 - `search_papers(query, limit)` — unified search across the OpenAlex corpus
 - `get_paper_details(paper_id)` — full metadata for any paper by OpenAlex ID, DOI, PubMed ID, or URL
 - `get_citation_graph(paper_id, direction, limit)` — walk citations forward (`direction="citations"`) or references backward (`direction="references"`)
+- `get_paper_full_text(paper_id)` — **new in v0.3** — fetches and extracts the full text of any open-access paper. Handles arXiv, PubMed Central, and direct publisher PDFs. Falls back gracefully when no OA version is available.
 
-All tools return a normalized paper shape with: id, title, abstract, authors, year, citation_count, venue, doi, url, pdf_url, source.
+All paper-returning tools use a normalized shape: `{id, title, abstract, authors, year, citation_count, venue, doi, url, pdf_url, source}`. The full-text tool adds `text` and `char_count`.
 
 ## Why OpenAlex (not Semantic Scholar)
 
@@ -45,6 +46,10 @@ claude mcp add --scope user aletheia -- uv run --directory $(pwd) aletheia-mcp
 ```
 
 Restart your MCP client and the tools become available.
+
+## Dependencies worth noting
+
+- **PyMuPDF** (AGPL-3.0) — used for full-text PDF extraction because it handles two-column scientific layouts far better than alternatives. If AGPL is a concern for your use case, you can swap in `pypdfium2` (Apache-2.0) in `sources/openalex.py:_extract_pdf_text` at the cost of somewhat messier text output.
 
 ## Why "aletheia"
 

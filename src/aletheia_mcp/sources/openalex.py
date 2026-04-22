@@ -16,10 +16,12 @@ credit; list endpoints (GET /works?filter=...) cost 10 credits. Free tier
 includes a generous daily allocation; check your usage at openalex.org/settings.
 """
 import asyncio
+import io
 import os
 from typing import Any, Literal
 
 import httpx
+import pymupdf
 
 BASE_URL = "https://api.openalex.org"
 
@@ -27,6 +29,12 @@ BASE_URL = "https://api.openalex.org"
 MAX_RETRIES = 5
 INITIAL_BACKOFF_SECONDS = 2.0
 MAX_BACKOFF_SECONDS = 30.0
+
+# Full-text extraction config.
+# Safety cap on PDF downloads — scientific papers are rarely >20MB; cap at 30MB
+# to catch malformed URLs that return e.g. huge supplementary data bundles.
+MAX_PDF_BYTES = 30 * 1024 * 1024
+PDF_DOWNLOAD_TIMEOUT_SECONDS = 60.0
 
 
 # ---------------------------------------------------------------------------
@@ -363,4 +371,172 @@ def _not_found(paper_id: str, direction: str) -> dict[str, Any]:
         "paper_id": paper_id,
         "direction": direction,
         "message": f"No paper found for identifier '{paper_id}'.",
+    }
+
+
+# ---------------------------------------------------------------------------
+# Full-text extraction
+# ---------------------------------------------------------------------------
+
+async def _download_pdf(url: str) -> bytes:
+    """Download a PDF from a URL, following redirects.
+
+    Raises httpx.HTTPError on network problems or non-2xx responses.
+    Raises ValueError if response exceeds MAX_PDF_BYTES.
+    """
+    # follow_redirects: publisher pdf_urls often redirect through CDNs.
+    # User-Agent: some publishers 403 generic/default UAs.
+    headers = {"User-Agent": "aletheia-mcp/0.3 (research tool; +github.com/TechFusionData/aletheia-mcp)"}
+    async with httpx.AsyncClient(
+        timeout=PDF_DOWNLOAD_TIMEOUT_SECONDS, follow_redirects=True
+    ) as client:
+        response = await client.get(url, headers=headers)
+        response.raise_for_status()
+
+    if len(response.content) > MAX_PDF_BYTES:
+        raise ValueError(
+            f"PDF too large: {len(response.content):,} bytes "
+            f"(cap: {MAX_PDF_BYTES:,})"
+        )
+    return response.content
+
+
+def _extract_pdf_text(pdf_bytes: bytes) -> str:
+    """Extract plain text from PDF bytes using PyMuPDF.
+
+    PyMuPDF (fitz) handles two-column scientific paper layouts noticeably
+    better than pdfplumber — it preserves word boundaries and reading order
+    on academic PDFs where pdfplumber tends to squash words together.
+
+    Runs synchronously — caller should wrap in asyncio.to_thread to avoid
+    blocking the event loop (PyMuPDF has no async API).
+
+    Joins all pages with double newlines. Filters out empty pages silently.
+    """
+    text_parts: list[str] = []
+    doc = pymupdf.open(stream=pdf_bytes, filetype="pdf")
+    try:
+        for page in doc:
+            page_text = page.get_text() or ""
+            if page_text.strip():
+                text_parts.append(page_text)
+    finally:
+        doc.close()
+    return "\n\n".join(text_parts)
+
+
+async def get_paper_full_text(paper_id: str) -> dict[str, Any]:
+    """Fetch and extract the full text of an open-access paper.
+
+    Flow:
+        1. Resolve paper metadata via OpenAlex (to get pdf_url + title).
+        2. If no pdf_url is known, return a structured error with DOI hint.
+        3. Download the PDF.
+        4. Verify magic bytes — pdf_urls sometimes return HTML landing pages
+           rather than actual PDFs for paywalled content.
+        5. Extract text via pdfplumber (wrapped in a thread).
+        6. Return text + metadata, or a structured error dict.
+
+    Errors are returned as dicts (not raised) so MCP clients get a clean
+    structured response Claude can reason about:
+        - "not_found": paper_id didn't resolve
+        - "no_open_access_version": paper exists but no pdf_url available
+        - "download_failed": network error or non-200 response
+        - "not_a_pdf": URL returned HTML or other non-PDF content
+        - "extraction_failed": pdfplumber couldn't parse (e.g., scanned PDF
+          with no text layer, or encrypted/malformed PDF)
+    """
+    # Step 1: resolve paper
+    paper = await get_paper_details(paper_id)
+    if paper.get("error"):
+        return paper  # already a structured not_found error
+
+    pdf_url = paper.get("pdf_url")
+    title = paper.get("title")
+    doi = paper.get("doi")
+
+    # Step 2: no OA version available
+    if not pdf_url:
+        return {
+            "error": "no_open_access_version",
+            "paper_id": paper_id,
+            "title": title,
+            "doi": doi,
+            "message": (
+                "No open-access PDF is available for this paper. "
+                f"To read it, try the DOI{': ' + doi if doi else ''} "
+                "through an institutional subscription."
+            ),
+        }
+
+    # Step 3: download
+    try:
+        pdf_bytes = await _download_pdf(pdf_url)
+    except ValueError as e:
+        # Size cap exceeded
+        return {
+            "error": "pdf_too_large",
+            "paper_id": paper_id,
+            "title": title,
+            "pdf_url": pdf_url,
+            "message": str(e),
+        }
+    except httpx.HTTPError as e:
+        return {
+            "error": "download_failed",
+            "paper_id": paper_id,
+            "title": title,
+            "pdf_url": pdf_url,
+            "message": f"Could not download PDF: {type(e).__name__}: {e}",
+        }
+
+    # Step 4: verify it's a real PDF (not a paywall HTML page)
+    if pdf_bytes[:4] != b"%PDF":
+        return {
+            "error": "not_a_pdf",
+            "paper_id": paper_id,
+            "title": title,
+            "pdf_url": pdf_url,
+            "message": (
+                "The pdf_url returned non-PDF content (likely an HTML paywall "
+                "or landing page). This paper may not have a truly open version."
+            ),
+        }
+
+    # Step 5: extract text (runs in thread to avoid blocking event loop)
+    try:
+        text = await asyncio.to_thread(_extract_pdf_text, pdf_bytes)
+    except Exception as e:
+        return {
+            "error": "extraction_failed",
+            "paper_id": paper_id,
+            "title": title,
+            "pdf_url": pdf_url,
+            "message": f"Failed to extract text: {type(e).__name__}: {e}",
+        }
+
+    if not text.strip():
+        return {
+            "error": "extraction_empty",
+            "paper_id": paper_id,
+            "title": title,
+            "pdf_url": pdf_url,
+            "message": (
+                "PDF parsed but contained no extractable text. This usually "
+                "means the PDF is a scanned image with no text layer; OCR "
+                "would be needed."
+            ),
+        }
+
+    # Step 6: success
+    return {
+        "paper_id": paper_id,
+        "title": title,
+        "authors": paper.get("authors"),
+        "year": paper.get("year"),
+        "doi": doi,
+        "pdf_url": pdf_url,
+        "text": text,
+        "char_count": len(text),
+        "source": "openalex",
     }

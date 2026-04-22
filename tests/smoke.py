@@ -95,12 +95,35 @@ async def test_citations(paper_id: str) -> None:
                 print()
 
 
+async def test_full_text() -> None:
+    """Exercise get_paper_full_text against a known arXiv-hosted paper.
+
+    Uses the InvestLM paper (W4387114267) — an arXiv paper that has a
+    clean, directly-extractable PDF. Acts as a regression test: if this
+    breaks, either the paper was moved or pymupdf extraction regressed.
+    """
+    print("=" * 72)
+    print("TEST 4: get_paper_full_text")
+    print("=" * 72)
+    result = await openalex.get_paper_full_text("W4387114267")
+    if result.get("error"):
+        print(f"ERROR: {result['error']} — {result['message']}")
+        return
+    words = len(result["text"].split())
+    print(f"✓ title: {result['title'][:60]}")
+    print(f"✓ char_count: {result['char_count']:,}")
+    print(f"✓ word count: {words:,}")
+    print(f"✓ first 200 chars: {result['text'][:200]!r}")
+    print()
+
+
 async def main() -> None:
     print(f"Auth: {'API key present ✓' if HAS_KEY else 'No API key (free tier)'}")
     print()
     paper_id = await test_search()
     await test_details(paper_id)
     await test_citations(paper_id)
+    await test_full_text()
     print("=" * 72)
     print("ALL TESTS COMPLETED")
     print("=" * 72)
