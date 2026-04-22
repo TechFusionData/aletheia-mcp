@@ -1,0 +1,20 @@
+[project]
+name = "aletheia-mcp"
+version = "0.1.0"
+description = "MCP server for scientific literature search and analysis across PubMed, arXiv, bioRxiv, and Semantic Scholar."
+readme = "README.md"
+authors = [
+    { name = "TechFusion", email = "techfusioncontent@gmail.com" }
+]
+requires-python = ">=3.11"
+dependencies = [
+    "httpx>=0.28.1",
+    "mcp[cli]>=1.27.0",
+]
+
+[project.scripts]
+aletheia-mcp = "aletheia_mcp:main"
+
+[build-system]
+requires = ["uv_build>=0.11.7,<0.12.0"]
+build-backend = "uv_build"
