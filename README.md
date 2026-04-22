@@ -1,5 +1,9 @@
 # aletheia-mcp
 
+[![PyPI version](https://img.shields.io/pypi/v/aletheia-mcp.svg)](https://pypi.org/project/aletheia-mcp/)
+[![Python](https://img.shields.io/pypi/pyversions/aletheia-mcp.svg)](https://pypi.org/project/aletheia-mcp/)
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](./LICENSE)
+
 An MCP server that gives AI agents structured access to scientific literature — 250M+ papers indexed via OpenAlex, covering arXiv, PubMed, Crossref, and more — so they can do research, not just search.
 
 ## The gap this fills
@@ -29,7 +33,23 @@ Earlier iterations used Semantic Scholar. The free API key there is gated and in
 
 ## Install
 
-Not yet on PyPI. To run locally:
+Available on PyPI:
+
+```bash
+uv add aletheia-mcp
+```
+
+Or as a one-line registration directly with Claude Code:
+
+```bash
+claude mcp add --scope user aletheia \
+  --env OPENALEX_API_KEY=your-key-here \
+  -- uvx aletheia-mcp
+```
+
+(Grab a free OpenAlex API key in 30 seconds at <https://openalex.org/settings/api>.)
+
+### From source (for contributors)
 
 ```bash
 git clone https://github.com/TechFusionData/aletheia-mcp
@@ -37,11 +57,6 @@ cd aletheia-mcp
 uv sync
 cp .env.example .env
 # edit .env and paste your OpenAlex API key
-```
-
-Then register with Claude Code (or your MCP client of choice):
-
-```bash
 claude mcp add --scope user aletheia -- uv run --directory $(pwd) aletheia-mcp
 ```
 
