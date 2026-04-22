@@ -4,9 +4,18 @@ Defines the MCP server and registers tools that AI agents can call.
 Each tool is a plain async Python function with a @mcp.tool() decorator.
 FastMCP handles all JSON-RPC message passing, schema generation, and I/O.
 """
+from pathlib import Path
+
+from dotenv import load_dotenv
 from mcp.server.fastmcp import FastMCP
 
 from aletheia_mcp.sources import semantic_scholar
+
+# Load environment variables from .env at project root (if present).
+# Resolves symlinks so it works regardless of where the subprocess is launched
+# from. Path walks: server.py → aletheia_mcp → src → project root.
+_PROJECT_ROOT = Path(__file__).resolve().parent.parent.parent
+load_dotenv(_PROJECT_ROOT / ".env")
 
 # Create the MCP server. The name appears in MCP client UIs and logs.
 mcp = FastMCP("aletheia-mcp")
