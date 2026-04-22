@@ -1,6 +1,6 @@
 [project]
 name = "aletheia-mcp"
-version = "0.1.0"
+version = "0.2.0"
 description = "MCP server for scientific literature search and analysis across PubMed, arXiv, bioRxiv, and Semantic Scholar."
 readme = "README.md"
 authors = [

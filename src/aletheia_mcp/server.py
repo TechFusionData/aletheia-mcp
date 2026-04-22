@@ -10,7 +10,7 @@ from typing import Literal
 from dotenv import load_dotenv
 from mcp.server.fastmcp import FastMCP
 
-from aletheia_mcp.sources import semantic_scholar
+from aletheia_mcp.sources import openalex
 
 # Load environment variables from .env at project root (if present).
 # Path walks: server.py → aletheia_mcp → src → project root.
@@ -21,31 +21,45 @@ load_dotenv(_PROJECT_ROOT / ".env")
 mcp = FastMCP("aletheia-mcp")
 
 
+# Shared description of the normalized paper shape, embedded in every tool
+# docstring so the MCP client has consistent schema guidance.
+_PAPER_SHAPE = """
+    Each paper dict contains:
+    - id: the source's native identifier (for OpenAlex: "W1234..." format)
+    - title: paper title
+    - abstract: full abstract text (null if none available)
+    - authors: list of author names (strings)
+    - year: publication year (integer) or null
+    - citation_count: number of times this paper has been cited
+    - venue: journal/conference name or null
+    - doi: DOI string without URL prefix (e.g., "10.1038/nature12373")
+    - url: canonical URL on the source platform
+    - pdf_url: link to open-access PDF when available, null otherwise
+    - source: always "openalex" in the current version
+"""
+
+
 @mcp.tool()
 async def search_papers(query: str, limit: int = 10) -> dict:
     """Search scientific literature for papers matching a query.
 
-    Searches across millions of papers indexed by Semantic Scholar, which
-    aggregates content from arXiv, PubMed, PubMed Central, DBLP, and many
-    other scientific sources. Good for finding papers by topic, author,
-    or concept.
+    Searches the OpenAlex corpus (250M+ works from arXiv, PubMed, Crossref,
+    and other sources). Good for finding papers by topic, author, or concept.
 
     Args:
         query: Natural language search terms. Examples:
             - "mitochondrial dysfunction Parkinson's disease"
             - "attention is all you need"
             - "CRISPR gene editing ethics"
-        limit: Maximum papers to return (1-100, default 10).
+        limit: Maximum papers to return (1-200, default 10).
 
     Returns:
         Dict with:
-        - query: the search string that was used
-        - total: total matches in the corpus (may exceed limit)
-        - papers: list of paper objects. Each includes paperId, title,
-          abstract, authors, year, citationCount, venue, externalIds
-          (for linking to arXiv/PubMed/DOI), and openAccessPdf when available.
-    """
-    return await semantic_scholar.search_papers(query, limit)
+        - query: the search string used
+        - total: total matching works in the corpus (may exceed limit)
+        - papers: list of normalized paper dicts
+    """ + _PAPER_SHAPE
+    return await openalex.search_papers(query, limit)
 
 
 @mcp.tool()
@@ -53,25 +67,24 @@ async def get_paper_details(paper_id: str) -> dict:
     """Fetch detailed information about a single paper by identifier.
 
     Use this when you have a specific paper ID and want its full metadata.
-    Common sources of IDs: results from search_papers (use paperId field),
-    or user-provided DOIs, arXiv IDs, PubMed IDs.
+    Common sources of IDs: results from search_papers (use the id field),
+    user-provided DOIs, PubMed IDs, or full OpenAlex URLs.
 
     Supported identifier formats:
-    - Semantic Scholar ID: "649def34f8be52c8b66281af98ae884c09aef38b"
-    - DOI (must include prefix): "DOI:10.1038/nature12373"
-    - arXiv ID (must include prefix): "arXiv:2106.15928"
-    - PubMed ID (must include prefix): "PMID:27889204"
+    - OpenAlex ID: "W2741809807" (native, fastest)
+    - DOI with prefix: "doi:10.1038/nature12373"
+    - Plain DOI: "10.1038/nature12373" (auto-detected)
+    - PubMed ID: "pmid:27889204"
+    - Full OpenAlex URL: "https://openalex.org/W2741809807"
 
     Args:
         paper_id: Any supported identifier (see formats above).
 
     Returns:
-        Paper dict with paperId, title, abstract, authors, year,
-        citationCount, venue, externalIds, url, openAccessPdf. Returns
-        an error dict with 'error': 'not_found' if the identifier
-        doesn't resolve to a known paper.
-    """
-    return await semantic_scholar.get_paper_details(paper_id)
+        Normalized paper dict (see shape below), or an error dict with
+        'error': 'not_found' if the identifier doesn't resolve.
+    """ + _PAPER_SHAPE
+    return await openalex.get_paper_details(paper_id)
 
 
 @mcp.tool()
@@ -85,30 +98,29 @@ async def get_citation_graph(
     Two directions answer different research questions:
 
     - direction="citations": Returns papers that CITE the given paper.
-      Use this to trace a paper's influence forward in time. Good for
-      questions like "what work built on this foundational paper?" or
-      "how has the field evolved since this was published?"
+      Use for tracing influence forward in time. Good for questions like
+      "what work built on this?" or "how has the field evolved since?"
+      Results sorted by citation count (most influential first).
 
-    - direction="references": Returns papers that the given paper CITES.
-      Use this to trace a paper's intellectual lineage backward. Good for
-      questions like "what prior art informed this?" or "what are the
-      canonical references in this area?"
+    - direction="references": Returns papers the given paper CITES.
+      Use for tracing intellectual lineage backward. Good for questions
+      like "what prior art informed this?" or "what are the canonical
+      references?"
 
     Args:
-        paper_id: Any supported paper identifier (same formats as
-            get_paper_details).
+        paper_id: Any supported identifier (see get_paper_details).
         direction: Either "citations" (papers citing this one) or
             "references" (papers this one cites). Default "citations".
-        limit: Max related papers to return (1-100, default 10).
+        limit: Max related papers to return (1-200, default 10).
 
     Returns:
         Dict with:
-        - paper_id: the source paper identifier
-        - direction: the direction that was traversed
+        - paper_id: the source identifier (as given)
+        - direction: the direction traversed
         - total: number of related papers returned
-        - papers: list of paper dicts, same shape as search_papers returns.
-    """
-    return await semantic_scholar.get_citation_graph(paper_id, direction, limit)
+        - papers: list of normalized paper dicts (see shape below)
+    """ + _PAPER_SHAPE
+    return await openalex.get_citation_graph(paper_id, direction, limit)
 
 
 def main() -> None:

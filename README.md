@@ -1,6 +1,6 @@
 # aletheia-mcp
 
-An MCP server that gives AI agents structured access to scientific literature — PubMed, arXiv, bioRxiv, and Semantic Scholar — so they can do research, not just search.
+An MCP server that gives AI agents structured access to scientific literature — 250M+ papers indexed via OpenAlex, covering arXiv, PubMed, Crossref, and more — so they can do research, not just search.
 
 ## The gap this fills
 
@@ -10,30 +10,41 @@ With aletheia-mcp running in Claude or any MCP-compatible client, you can ask th
 
 > "I'm reviewing literature on mitochondrial dysfunction in Parkinson's. Find the 20 most-cited papers from the last 5 years, cluster them by methodology, identify which methodologies are gaining traction vs. declining, and flag any that contradict the dominant view."
 
-Under the hood, Claude chains multiple tool calls — search, fetch full text, analyze citations, compare — and synthesizes an answer. That's the difference between search and research.
+Under the hood, Claude chains multiple tool calls — search, fetch full metadata, walk citation graphs, compare — and synthesizes an answer. That's the difference between search and research.
 
-## Status
+## Tools in v0.2.0
 
-**v0.1.0 — early, actively building.** Tools come online one at a time. Expect rough edges.
+- `search_papers(query, limit)` — unified search across the OpenAlex corpus
+- `get_paper_details(paper_id)` — full metadata for any paper by OpenAlex ID, DOI, PubMed ID, or URL
+- `get_citation_graph(paper_id, direction, limit)` — walk citations forward (`direction="citations"`) or references backward (`direction="references"`)
 
-Tools planned for v0.1:
-- `search_papers` — unified search across PubMed, arXiv, bioRxiv, Semantic Scholar
-- `get_paper_metadata` — detailed info on a specific paper (authors, abstract, citations)
-- `get_paper_full_text` — fetch full text where open-access available
-- `find_related_papers` — semantic and citation-graph neighbors
-- `get_citation_graph` — traverse who cites or is cited by a paper
+All tools return a normalized paper shape with: id, title, abstract, authors, year, citation_count, venue, doi, url, pdf_url, source.
+
+## Why OpenAlex (not Semantic Scholar)
+
+Earlier iterations used Semantic Scholar. The free API key there is gated and institution-preferred — independent developers face slow or rejected applications, which meant future users of this tool would hit the same wall.
+
+[OpenAlex](https://openalex.org) is the open, CC0-licensed successor to Microsoft Academic Graph, with 250M+ works covering the same sources. As of February 2026, API keys are required but are free and self-serve — 30 seconds to sign up, no approval process.
 
 ## Install
 
-Not yet on PyPI. To try it locally:
+Not yet on PyPI. To run locally:
 
 ```bash
 git clone https://github.com/TechFusionData/aletheia-mcp
 cd aletheia-mcp
 uv sync
+cp .env.example .env
+# edit .env and paste your OpenAlex API key
 ```
 
-Then configure your MCP client to point at the local server. Instructions per client coming once there's something worth installing.
+Then register with Claude Code (or your MCP client of choice):
+
+```bash
+claude mcp add --scope user aletheia -- uv run --directory $(pwd) aletheia-mcp
+```
+
+Restart your MCP client and the tools become available.
 
 ## Why "aletheia"
 
